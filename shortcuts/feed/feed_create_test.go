@@ -6,6 +6,7 @@ package feed
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -65,7 +66,7 @@ func warmTenantToken(t *testing.T, f *cmdutil.Factory, reg *httpmock.Registry) {
 
 func runMountedFeedShortcut(t *testing.T, shortcut common.Shortcut, args []string, f *cmdutil.Factory, stdout *bytes.Buffer) error {
 	t.Helper()
-	parent := &cobra.Command{Use: "feed"}
+	parent := &cobra.Command{Use: "test"}
 	shortcut.Mount(parent, f)
 	parent.SetArgs(args)
 	parent.SilenceErrors = true
@@ -104,6 +105,9 @@ func TestFeedCreate_Success(t *testing.T) {
 	}
 	if !strings.Contains(out, "test-biz-id-123") {
 		t.Errorf("expected biz_id value in output, got: %s", out)
+	}
+	if !strings.Contains(out, "failed_cards") {
+		t.Errorf("expected failed_cards in output, got: %s", out)
 	}
 }
 
@@ -168,6 +172,17 @@ func TestFeedCreate_Validate(t *testing.T) {
 			name:    "preview too long",
 			args:    []string{"+create", "--user-ids", "ou_abc", "--title", "Test", "--link", "https://www.feishu.cn/", "--preview", strings.Repeat("a", 121), "--as", "bot"},
 			wantErr: "preview",
+		},
+		{
+			name: "too many user-ids",
+			args: func() []string {
+				base := []string{"+create", "--title", "T", "--link", "https://example.com/", "--as", "bot"}
+				for i := 0; i < 21; i++ {
+					base = append(base, "--user-ids", fmt.Sprintf("ou_%02d", i))
+				}
+				return base
+			}(),
+			wantErr: "20",
 		},
 	}
 

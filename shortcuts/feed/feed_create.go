@@ -36,9 +36,6 @@ var FeedCreate = common.Shortcut{
 	},
 	Validate: func(ctx context.Context, runtime *common.RuntimeContext) error {
 		userIDs := runtime.StrArray("user-ids")
-		if len(userIDs) == 0 {
-			return output.ErrValidation("--user-ids is required: provide at least one user open_id (ou_xxx)")
-		}
 		if len(userIDs) > 20 {
 			return output.ErrValidation("--user-ids exceeds maximum of 20 users (got %d)", len(userIDs))
 		}
