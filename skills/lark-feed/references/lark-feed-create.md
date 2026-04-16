@@ -13,8 +13,9 @@ This skill maps to the shortcut: `lark-cli feed +create` (internally calls `POST
 App feed cards are delivered directly to users' message feeds. Before calling this command, confirm with the user:
 
 1. Who should receive the card (user open_ids)
-2. The title and link content
-3. Whether to enable time-sensitive (temporary top pin)
+2. The card title content (max 60 chars)
+3. The card link URL (HTTPS only, max 700 chars)
+4. Whether to enable time-sensitive (temporary top pin)
 
 **Do not** send cards without explicit user approval.
 
@@ -39,6 +40,8 @@ lark-cli feed +create \
 | `--title` | Yes | Card title shown in the message feed (max 60 chars). |
 | `--preview` | No | Preview text shown under the title (max 120 chars). |
 | `--time-sensitive` | No | Temporarily pin the card at top of recipients' message feed. |
+| `--as` | No | Identity to use; must be `bot` (user identity is not supported for this command). |
+| `--dry-run` | No | Preview the API call without sending. |
 
 ## Examples
 
@@ -86,3 +89,10 @@ lark-cli feed +create \
   --dry-run \
   --as bot
 ```
+
+## Notes
+
+- **Bot-only**: `--as bot` is required. Passing `--as user` will error because this API requires `tenant_access_token`.
+- **Partial delivery**: If some recipients fail, the command still exits 0. Check `failed_cards` in the output for individual failure reasons (0=unknown, 1=no permission, 2=not created, 3=rate limited, 4=duplicate).
+- **Client version**: Recipients must have Lark client v7.6 or later. Cards sent to older clients are silently ignored by the platform.
+- **User limit**: Maximum 20 recipients per call. Passing more than 20 `--user-ids` values will fail validation before the API is called.
