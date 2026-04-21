@@ -6,7 +6,6 @@ package mail
 import (
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -1291,7 +1290,7 @@ func buildMessageForCompose(msg map[string]interface{}, urlMap map[string]string
 			contentType := resolveAttachmentContentType(att, filename)
 			dlURL := urlMap[id]
 
-			if isInline {
+			if isInline && cid != "" {
 				images = append(images, mailImageOutput{
 					ID:          id,
 					Filename:    filename,
@@ -1358,9 +1357,10 @@ type inlineSourcePart struct {
 }
 
 type composeSourceMessage struct {
-	Original           originalMessage
-	ForwardAttachments []forwardSourceAttachment
-	InlineImages       []inlineSourcePart
+	Original            originalMessage
+	ForwardAttachments  []forwardSourceAttachment
+	InlineImages        []inlineSourcePart
+	FailedAttachmentIDs map[string]bool
 }
 
 // fetchComposeSourceMessage loads a message via the +message pipeline and converts it
@@ -1371,13 +1371,20 @@ func fetchComposeSourceMessage(runtime *common.RuntimeContext, mailboxID, messag
 		return composeSourceMessage{}, err
 	}
 	attIDs := extractAttachmentIDs(msg)
-	urlMap, _ := fetchAttachmentURLs(runtime, mailboxID, messageID, attIDs)
+	urlMap, warnings := fetchAttachmentURLs(runtime, mailboxID, messageID, attIDs)
+	failedIDs := make(map[string]bool)
+	for _, w := range warnings {
+		if w.Code == "attachment_download_url_failed_id" && w.AttachmentID != "" {
+			failedIDs[w.AttachmentID] = true
+		}
+	}
 	out := buildMessageForCompose(msg, urlMap, true)
 	orig := toOriginalMessageForCompose(out)
 	return composeSourceMessage{
-		Original:           orig,
-		ForwardAttachments: toForwardSourceAttachments(out),
-		InlineImages:       toInlineSourceParts(out),
+		Original:            orig,
+		ForwardAttachments:  toForwardSourceAttachments(out),
+		InlineImages:        toInlineSourceParts(out),
+		FailedAttachmentIDs: failedIDs,
 	}, nil
 }
 
@@ -1386,6 +1393,12 @@ func fetchComposeSourceMessage(runtime *common.RuntimeContext, mailboxID, messag
 func validateForwardAttachmentURLs(src composeSourceMessage) error {
 	var missing []string
 	for _, att := range src.ForwardAttachments {
+		if att.AttachmentType == attachmentTypeLarge {
+			continue
+		}
+		if src.FailedAttachmentIDs[att.ID] {
+			continue
+		}
 		if att.DownloadURL == "" {
 			missing = append(missing, fmt.Sprintf("attachment %q (%s)", att.Filename, att.ID))
 		}
@@ -1904,12 +1917,13 @@ func validateInlineCIDs(html string, userCIDs, extraCIDs []string) error {
 	return nil
 }
 
-func addInlineImagesToBuilder(runtime *common.RuntimeContext, bld emlbuilder.Builder, images []inlineSourcePart) (emlbuilder.Builder, []string, error) {
+func addInlineImagesToBuilder(runtime *common.RuntimeContext, bld emlbuilder.Builder, images []inlineSourcePart) (emlbuilder.Builder, []string, int64, error) {
 	var cids []string
+	var totalBytes int64
 	for _, img := range images {
 		content, err := downloadAttachmentContent(runtime, img.DownloadURL)
 		if err != nil {
-			return bld, nil, fmt.Errorf("failed to download inline resource %s: %w", img.Filename, err)
+			return bld, nil, 0, fmt.Errorf("failed to download inline resource %s: %w", img.Filename, err)
 		}
 		cid := normalizeInlineCID(img.CID)
 		if cid == "" {
@@ -1921,8 +1935,9 @@ func addInlineImagesToBuilder(runtime *common.RuntimeContext, bld emlbuilder.Bui
 		}
 		bld = bld.AddInline(content, contentType, img.Filename, cid)
 		cids = append(cids, cid)
+		totalBytes += int64(len(content))
 	}
-	return bld, cids, nil
+	return bld, cids, totalBytes, nil
 }
 
 // InlineSpec represents one inline image entry from the --inline JSON array.
@@ -1964,37 +1979,6 @@ func inlineSpecFilePaths(specs []InlineSpec) []string {
 		paths[i] = s.FilePath
 	}
 	return paths
-}
-
-// checkAttachmentSizeLimit returns an error if the combined attachment count exceeds
-// MaxAttachmentCount or the combined size exceeds MaxAttachmentBytes.
-// filePaths are read via os.Stat (no full read); extraBytes / extraCount account for
-// already-loaded content (e.g. downloaded original attachments in +forward).
-func checkAttachmentSizeLimit(fio fileio.FileIO, filePaths []string, extraBytes int64, extraCount ...int) error {
-	extra := 0
-	for _, c := range extraCount {
-		extra += c
-	}
-	total := extra + len(filePaths)
-	if total > MaxAttachmentCount {
-		return fmt.Errorf("attachment count %d exceeds the limit of %d", total, MaxAttachmentCount)
-	}
-	totalBytes := extraBytes
-	for _, p := range filePaths {
-		info, err := fio.Stat(p)
-		if err != nil {
-			if errors.Is(err, fileio.ErrPathValidation) {
-				return fmt.Errorf("unsafe attachment path %s: %w", p, err)
-			}
-			return fmt.Errorf("failed to stat attachment %s: %w", p, err)
-		}
-		totalBytes += info.Size()
-	}
-	if totalBytes > MaxAttachmentBytes {
-		return fmt.Errorf("total attachment size %.1f MB exceeds the 25 MB limit",
-			float64(totalBytes)/1024/1024)
-	}
-	return nil
 }
 
 // validateSendTime checks that --send-time, if provided, requires --confirm-send,
@@ -2117,14 +2101,15 @@ func validateComposeInlineAndAttachments(fio fileio.FileIO, attachFlag, inlineFl
 			return fmt.Errorf("--inline requires an HTML body (the provided body appears to be plain text; add HTML tags or remove --inline)")
 		}
 	}
-	// Validate explicitly provided files (--attach + --inline) early so that
-	// dry-run and reply/forward can catch local errors before Execute.
-	// Auto-resolved local images are only known at Execute time, so Execute
-	// performs a second, complete size check that includes them.
 	inlineSpecs, err := parseInlineSpecs(inlineFlag)
 	if err != nil {
 		return err
 	}
-	allFiles := append(splitByComma(attachFlag), inlineSpecFilePaths(inlineSpecs)...)
-	return checkAttachmentSizeLimit(fio, allFiles, 0)
+	// Preflight: verify explicit file paths exist and pass blocked-extension
+	// checks so that --dry-run surfaces local errors before Execute.
+	allPaths := append(splitByComma(attachFlag), inlineSpecFilePaths(inlineSpecs)...)
+	if _, err := statAttachmentFiles(fio, allPaths); err != nil {
+		return err
+	}
+	return nil
 }

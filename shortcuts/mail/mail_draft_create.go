@@ -96,7 +96,7 @@ var MailDraftCreate = common.Shortcut{
 		if err != nil {
 			return err
 		}
-		rawEML, err := buildRawEMLForDraftCreate(runtime, input, sigResult, priority)
+		rawEML, err := buildRawEMLForDraftCreate(ctx, runtime, input, sigResult, priority)
 		if err != nil {
 			return err
 		}
@@ -142,7 +142,7 @@ func parseDraftCreateInput(runtime *common.RuntimeContext) (draftCreateInput, er
 	return input, nil
 }
 
-func buildRawEMLForDraftCreate(runtime *common.RuntimeContext, input draftCreateInput, sigResult *signatureResult, priority string) (string, error) {
+func buildRawEMLForDraftCreate(ctx context.Context, runtime *common.RuntimeContext, input draftCreateInput, sigResult *signatureResult, priority string) (string, error) {
 	senderEmail := resolveComposeSenderEmail(runtime)
 	if senderEmail == "" {
 		return "", fmt.Errorf("unable to determine sender email; please specify --from explicitly")
@@ -172,8 +172,11 @@ func buildRawEMLForDraftCreate(runtime *common.RuntimeContext, input draftCreate
 		return "", output.ErrValidation("%v", err)
 	}
 	var autoResolvedPaths []string
+	var composedHTMLBody string
+	var composedTextBody string
 	if input.PlainText {
-		bld = bld.TextBody([]byte(input.Body))
+		composedTextBody = input.Body
+		bld = bld.TextBody([]byte(composedTextBody))
 	} else if bodyIsHTML(input.Body) || sigResult != nil {
 		htmlBody := input.Body
 		if !bodyIsHTML(input.Body) {
@@ -184,7 +187,8 @@ func buildRawEMLForDraftCreate(runtime *common.RuntimeContext, input draftCreate
 			return "", resolveErr
 		}
 		resolved = injectSignatureIntoBody(resolved, sigResult)
-		bld = bld.HTMLBody([]byte(resolved))
+		composedHTMLBody = resolved
+		bld = bld.HTMLBody([]byte(composedHTMLBody))
 		bld = addSignatureImagesToBuilder(bld, sigResult)
 		var allCIDs []string
 		for _, ref := range refs {
@@ -201,15 +205,16 @@ func buildRawEMLForDraftCreate(runtime *common.RuntimeContext, input draftCreate
 			return "", err
 		}
 	} else {
-		bld = bld.TextBody([]byte(input.Body))
+		composedTextBody = input.Body
+		bld = bld.TextBody([]byte(composedTextBody))
 	}
 	bld = applyPriority(bld, priority)
-	allFilePaths := append(append(splitByComma(input.Attach), inlineSpecFilePaths(inlineSpecs)...), autoResolvedPaths...)
-	if err := checkAttachmentSizeLimit(runtime.FileIO(), allFilePaths, 0); err != nil {
+	allInlinePaths := append(inlineSpecFilePaths(inlineSpecs), autoResolvedPaths...)
+	composedBodySize := int64(len(composedHTMLBody) + len(composedTextBody))
+	emlBase := estimateEMLBaseSize(runtime.FileIO(), composedBodySize, allInlinePaths, 0)
+	bld, err = processLargeAttachments(ctx, runtime, bld, composedHTMLBody, composedTextBody, splitByComma(input.Attach), emlBase, 0)
+	if err != nil {
 		return "", err
-	}
-	for _, path := range splitByComma(input.Attach) {
-		bld = bld.AddFileAttachment(path)
 	}
 	rawEML, err := bld.BuildBase64URL()
 	if err != nil {

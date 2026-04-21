@@ -104,6 +104,7 @@ var MailReplyAll = common.Shortcut{
 			return fmt.Errorf("failed to fetch original message: %w", err)
 		}
 		orig := sourceMsg.Original
+		stripLargeAttachmentCard(&orig)
 
 		senderEmail := resolveComposeSenderEmail(runtime)
 		if senderEmail == "" {
@@ -162,12 +163,15 @@ var MailReplyAll = common.Shortcut{
 			bld = bld.LMSReplyToMessageID(messageId)
 		}
 		var autoResolvedPaths []string
+		var composedHTMLBody string
+		var composedTextBody string
+		var srcInlineBytes int64
 		if useHTML {
 			if err := validateInlineImageURLs(sourceMsg); err != nil {
 				return fmt.Errorf("HTML reply-all blocked: %w", err)
 			}
 			var srcCIDs []string
-			bld, srcCIDs, err = addInlineImagesToBuilder(runtime, bld, sourceMsg.InlineImages)
+			bld, srcCIDs, srcInlineBytes, err = addInlineImagesToBuilder(runtime, bld, sourceMsg.InlineImages)
 			if err != nil {
 				return err
 			}
@@ -179,8 +183,8 @@ var MailReplyAll = common.Shortcut{
 			if sigResult != nil {
 				bodyWithSig += draftpkg.SignatureSpacing() + draftpkg.BuildSignatureHTML(sigResult.ID, sigResult.RenderedContent)
 			}
-			fullHTML := bodyWithSig + quoted
-			bld = bld.HTMLBody([]byte(fullHTML))
+			composedHTMLBody = bodyWithSig + quoted
+			bld = bld.HTMLBody([]byte(composedHTMLBody))
 			bld = addSignatureImagesToBuilder(bld, sigResult)
 			var userCIDs []string
 			for _, ref := range refs {
@@ -196,15 +200,16 @@ var MailReplyAll = common.Shortcut{
 				return err
 			}
 		} else {
-			bld = bld.TextBody([]byte(bodyStr + quoted))
+			composedTextBody = bodyStr + quoted
+			bld = bld.TextBody([]byte(composedTextBody))
 		}
 		bld = applyPriority(bld, priority)
-		allFilePaths := append(append(splitByComma(attachFlag), inlineSpecFilePaths(inlineSpecs)...), autoResolvedPaths...)
-		if err := checkAttachmentSizeLimit(runtime.FileIO(), allFilePaths, 0); err != nil {
+		allInlinePaths := append(inlineSpecFilePaths(inlineSpecs), autoResolvedPaths...)
+		composedBodySize := int64(len(composedHTMLBody) + len(composedTextBody))
+		emlBase := estimateEMLBaseSize(runtime.FileIO(), composedBodySize, allInlinePaths, srcInlineBytes)
+		bld, err = processLargeAttachments(ctx, runtime, bld, composedHTMLBody, composedTextBody, splitByComma(attachFlag), emlBase, 0)
+		if err != nil {
 			return err
-		}
-		for _, path := range splitByComma(attachFlag) {
-			bld = bld.AddFileAttachment(path)
 		}
 		rawEML, err := bld.BuildBase64URL()
 		if err != nil {

@@ -70,10 +70,10 @@ var MailSend = common.Shortcut{
 		if err := validateSignatureWithPlainText(runtime.Bool("plain-text"), runtime.Str("signature-id")); err != nil {
 			return err
 		}
-		if err := validatePriorityFlag(runtime); err != nil {
+		if err := validateComposeInlineAndAttachments(runtime.FileIO(), runtime.Str("attach"), runtime.Str("inline"), runtime.Bool("plain-text"), runtime.Str("body")); err != nil {
 			return err
 		}
-		return validateComposeInlineAndAttachments(runtime.FileIO(), runtime.Str("attach"), runtime.Str("inline"), runtime.Bool("plain-text"), runtime.Str("body"))
+		return validatePriorityFlag(runtime)
 	},
 	Execute: func(ctx context.Context, runtime *common.RuntimeContext) error {
 		to := runtime.Str("to")
@@ -117,8 +117,11 @@ var MailSend = common.Shortcut{
 			return err
 		}
 		var autoResolvedPaths []string
+		var composedHTMLBody string
+		var composedTextBody string
 		if plainText {
-			bld = bld.TextBody([]byte(body))
+			composedTextBody = body
+			bld = bld.TextBody([]byte(composedTextBody))
 		} else if bodyIsHTML(body) || sigResult != nil {
 			// If signature is requested on plain-text body, auto-upgrade to HTML.
 			htmlBody := body
@@ -130,7 +133,8 @@ var MailSend = common.Shortcut{
 				return resolveErr
 			}
 			resolved = injectSignatureIntoBody(resolved, sigResult)
-			bld = bld.HTMLBody([]byte(resolved))
+			composedHTMLBody = resolved
+			bld = bld.HTMLBody([]byte(composedHTMLBody))
 			bld = addSignatureImagesToBuilder(bld, sigResult)
 			var allCIDs []string
 			for _, ref := range refs {
@@ -147,16 +151,16 @@ var MailSend = common.Shortcut{
 				return err
 			}
 		} else {
-			bld = bld.TextBody([]byte(body))
+			composedTextBody = body
+			bld = bld.TextBody([]byte(composedTextBody))
 		}
 		bld = applyPriority(bld, priority)
-		allFilePaths := append(append(splitByComma(attachFlag), inlineSpecFilePaths(inlineSpecs)...), autoResolvedPaths...)
-		if err := checkAttachmentSizeLimit(runtime.FileIO(), allFilePaths, 0); err != nil {
+		allInlinePaths := append(inlineSpecFilePaths(inlineSpecs), autoResolvedPaths...)
+		composedBodySize := int64(len(composedHTMLBody) + len(composedTextBody))
+		emlBase := estimateEMLBaseSize(runtime.FileIO(), composedBodySize, allInlinePaths, 0)
+		bld, err = processLargeAttachments(ctx, runtime, bld, composedHTMLBody, composedTextBody, splitByComma(attachFlag), emlBase, 0)
+		if err != nil {
 			return err
-		}
-
-		for _, path := range splitByComma(attachFlag) {
-			bld = bld.AddFileAttachment(path)
 		}
 
 		rawEML, err := bld.BuildBase64URL()
