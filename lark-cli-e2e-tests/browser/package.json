@@ -1,0 +1,14 @@
+{
+  "name": "lark-cli-e2e-browser",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Playwright automation for lark-cli auth/config e2e",
+  "scripts": {
+    "test": "playwright test",
+    "auth:domain-all": "node auth-login-domain-all.js",
+    "session:fetch": "node fetch-session.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.54.2"
+  }
+}

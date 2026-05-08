@@ -1,0 +1,4 @@
+.pw-*
+artifacts/
+playwright-report/
+test-results/
