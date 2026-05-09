@@ -190,7 +190,6 @@ func TestSheets_SpreadsheetsResource(t *testing.T) {
 				"title":        "lark-cli-e2e-sheets-resource-" + suffix,
 				"folder_token": folderToken,
 			},
-			Yes: true,
 		})
 		require.NoError(t, err)
 		result.AssertExitCode(t, 0)

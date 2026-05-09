@@ -52,7 +52,6 @@ func TestCalendar_ManageCalendar(t *testing.T) {
 				"summary":     calendarSummary,
 				"description": calendarDescription,
 			},
-			Yes: true,
 		})
 		require.NoError(t, err)
 		result.AssertExitCode(t, 0)
@@ -116,7 +115,6 @@ func TestCalendar_ManageCalendar(t *testing.T) {
 			Data: map[string]any{
 				"summary": updatedCalendarSummary,
 			},
-			Yes: true,
 		})
 		require.NoError(t, err)
 		result.AssertExitCode(t, 0)
