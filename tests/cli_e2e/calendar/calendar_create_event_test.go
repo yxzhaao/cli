@@ -100,7 +100,6 @@ func TestCalendar_CreateEvent(t *testing.T) {
 				"calendar_id": calendarID,
 				"event_id":    eventID,
 			},
-			Yes: true,
 		})
 		require.NoError(t, err)
 		result.AssertExitCode(t, 0)
