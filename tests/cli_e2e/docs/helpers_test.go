@@ -8,11 +8,12 @@ import (
 	"testing"
 
 	clie2e "github.com/larksuite/cli/tests/cli_e2e"
+	"github.com/larksuite/cli/tests/cli_e2e/drive"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
 
-func createDocWithRetry(t *testing.T, parentT *testing.T, ctx context.Context, folderToken string, title string, markdown string, defaultAs string) string {
+func createDoc(t *testing.T, parentT *testing.T, ctx context.Context, folderToken string, title string, markdown string, defaultAs string) string {
 	t.Helper()
 
 	require.NotEmpty(t, folderToken, "folder token is required")
@@ -37,15 +38,7 @@ func createDocWithRetry(t *testing.T, parentT *testing.T, ctx context.Context, f
 		cleanupCtx, cancel := clie2e.CleanupContext()
 		defer cancel()
 
-		deleteResult, deleteErr := clie2e.RunCmd(cleanupCtx, clie2e.Request{
-			Args: []string{
-				"drive", "+delete",
-				"--file-token", docToken,
-				"--type", "docx",
-				"--yes",
-			},
-			DefaultAs: defaultAs,
-		})
+		deleteResult, deleteErr := drive.DeleteResourceAndVerify(cleanupCtx, docToken, "docx", defaultAs)
 		clie2e.ReportCleanupFailure(parentT, "delete doc "+docToken, deleteResult, deleteErr)
 	})
 

@@ -25,21 +25,20 @@ func TestWiki_NodeWorkflow(t *testing.T) {
 	copiedTitle := "lark-cli-e2e-wiki-copy-" + suffix
 
 	var spaceID string
+	var hostNodeToken string
 	var parentNodeToken string
 	var createdNodeToken string
 	var createdObjToken string
 	var copiedNodeToken string
 	var copiedSpaceID string
 
-	t.Run("create isolated parent node as bot", func(t *testing.T) {
-		parentNode := createWikiNode(t, parentT, ctx, "my_library", map[string]any{
-			"node_type": "origin",
-			"obj_type":  "docx",
-			"title":     parentTitle,
-		})
+	t.Run("create isolated parent node under host as bot", func(t *testing.T) {
+		host, parentNode := createIsolatedParentUnderAnyHost(t, parentT, ctx, parentTitle)
 		spaceID = parentNode.Get("space_id").String()
+		hostNodeToken = host.Get("node_token").String()
 		parentNodeToken = parentNode.Get("node_token").String()
 		require.NotEmpty(t, spaceID)
+		require.NotEmpty(t, hostNodeToken)
 		require.NotEmpty(t, parentNodeToken)
 		assert.Equal(t, parentTitle, parentNode.Get("title").String())
 	})
@@ -47,12 +46,15 @@ func TestWiki_NodeWorkflow(t *testing.T) {
 	t.Run("create node as bot", func(t *testing.T) {
 		require.NotEmpty(t, parentNodeToken, "parent node token should be created before child node")
 
-		node := createWikiNode(t, parentT, ctx, spaceID, map[string]any{
+		node, result, err := createNode(t, parentT, ctx, spaceID, map[string]any{
 			"node_type":         "origin",
 			"obj_type":          "docx",
 			"title":             createdTitle,
 			"parent_node_token": parentNodeToken,
 		})
+		require.NoError(t, err)
+		result.AssertExitCode(t, 0)
+		result.AssertStdoutStatus(t, 0)
 
 		createdNodeToken = node.Get("node_token").String()
 		createdObjToken = node.Get("obj_token").String()
@@ -66,7 +68,7 @@ func TestWiki_NodeWorkflow(t *testing.T) {
 
 	t.Run("get created node as bot", func(t *testing.T) {
 		require.NotEmpty(t, createdNodeToken, "node token should be created before get_node")
-		node := getWikiNode(t, ctx, createdNodeToken)
+		node := getNode(t, ctx, createdNodeToken)
 		assert.Equal(t, createdNodeToken, node.Get("node_token").String())
 		assert.Equal(t, createdObjToken, node.Get("obj_token").String())
 		assert.Equal(t, createdTitle, node.Get("title").String())
@@ -75,28 +77,29 @@ func TestWiki_NodeWorkflow(t *testing.T) {
 
 	t.Run("get isolated parent node as bot", func(t *testing.T) {
 		require.NotEmpty(t, parentNodeToken, "parent node token should be created before get_node")
-		node := getWikiNode(t, ctx, parentNodeToken)
+		node := getNode(t, ctx, parentNodeToken)
 		assert.Equal(t, parentNodeToken, node.Get("node_token").String())
 		assert.Equal(t, parentTitle, node.Get("title").String())
 	})
 
 	t.Run("get space as bot", func(t *testing.T) {
 		require.NotEmpty(t, spaceID, "space ID should be available before get")
-		space := getWikiSpace(t, ctx, spaceID)
+		space := getSpace(t, ctx, spaceID)
 		assert.Equal(t, spaceID, space.Get("space_id").String())
 		assert.NotEmpty(t, space.Get("name").String())
 	})
 
 	t.Run("list spaces as bot", func(t *testing.T) {
-		result := listWikiSpaces(t, ctx, 1)
+		result := listSpaces(t, ctx, 1)
 		assert.True(t, result.Get("data.items").Exists(), "stdout:\n%s", result.Raw)
 	})
 
 	t.Run("list nodes and find isolated parent node as bot", func(t *testing.T) {
 		require.NotEmpty(t, spaceID, "space ID should be available before list")
+		require.NotEmpty(t, hostNodeToken, "host node token should be available before list")
 		require.NotEmpty(t, parentNodeToken, "parent node token should be available before list")
 
-		nodeItem := findWikiNodeByToken(t, ctx, spaceID, parentNodeToken)
+		nodeItem := findNodeByToken(t, ctx, spaceID, parentNodeToken, hostNodeToken)
 		assert.Equal(t, parentTitle, nodeItem.Get("title").String())
 	})
 
@@ -104,14 +107,15 @@ func TestWiki_NodeWorkflow(t *testing.T) {
 		require.NotEmpty(t, spaceID, "space ID should be available before copy")
 		require.NotEmpty(t, createdNodeToken, "node token should be available before copy")
 
-		result, err := clie2e.RunCmd(ctx, clie2e.Request{
+		result, err := clie2e.RunCmdWithRetry(ctx, clie2e.Request{
 			Args:      []string{"api", "post", "/open-apis/wiki/v2/spaces/" + spaceID + "/nodes/" + createdNodeToken + "/copy"},
 			DefaultAs: "bot",
 			Data: map[string]any{
-				"target_space_id": spaceID,
-				"title":           copiedTitle,
+				"target_space_id":     spaceID,
+				"target_parent_token": parentNodeToken,
+				"title":               copiedTitle,
 			},
-		})
+		}, clie2e.RetryOptions{})
 		require.NoError(t, err)
 		result.AssertExitCode(t, 0)
 		result.AssertStdoutStatus(t, 0)
@@ -125,14 +129,14 @@ func TestWiki_NodeWorkflow(t *testing.T) {
 			cleanupCtx, cancel := clie2e.CleanupContext()
 			defer cancel()
 
-			deleteResult, deleteErr := deleteWikiNode(cleanupCtx, copiedSpaceID, copiedNodeToken, copiedObjType)
+			deleteResult, deleteErr := deleteNodeAndVerify(cleanupCtx, copiedSpaceID, copiedNodeToken, copiedObjType)
 			clie2e.ReportCleanupFailure(parentT, "delete copied wiki node "+copiedNodeToken, deleteResult, deleteErr)
 		})
 	})
 
 	t.Run("get copied node as bot", func(t *testing.T) {
 		require.NotEmpty(t, copiedNodeToken, "copied node token should be available before verification")
-		node := getWikiNode(t, ctx, copiedNodeToken)
+		node := getNode(t, ctx, copiedNodeToken)
 		assert.Equal(t, copiedTitle, node.Get("title").String())
 	})
 }

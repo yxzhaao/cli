@@ -16,7 +16,7 @@
 
 | Status | Cmd | Type | Testcase | Key parameter shapes | Notes / uncovered reason |
 | --- | --- | --- | --- | --- | --- |
-| ✓ | docs +create | shortcut | docs/helpers_test.go::createDocWithRetry; docs_create_fetch_test.go::TestDocs_CreateAndFetchWorkflowAsUser/create as user | `--folder-token`; `--title`; `--markdown` | helper asserts returned doc id |
+| ✓ | docs +create | shortcut | docs/helpers_test.go::createDoc; docs_create_fetch_test.go::TestDocs_CreateAndFetchWorkflowAsUser/create as user | `--folder-token`; `--title`; `--markdown` | helper asserts returned doc id |
 | ✓ | docs +fetch | shortcut | docs_create_fetch_test.go::TestDocs_CreateAndFetchWorkflow/fetch as bot; docs_update_test.go::TestDocs_UpdateWorkflow/verify as bot; docs_create_fetch_test.go::TestDocs_CreateAndFetchWorkflowAsUser/fetch as user | `--doc <docToken>` | |
 | ✕ | docs +media-download | shortcut |  | none | no media fixture workflow yet |
 | ✕ | docs +media-insert | shortcut |  | none | requires deterministic upload fixture and rollback assertions |

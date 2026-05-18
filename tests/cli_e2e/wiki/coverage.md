@@ -15,7 +15,7 @@
 | --- | --- | --- | --- | --- | --- |
 | ✓ | wiki nodes copy | api | wiki_workflow_test.go::TestWiki_NodeWorkflow/copy node as bot | `space_id`; `node_token` in `--params`; target/title in `--data` | |
 | ✓ | wiki nodes create | api | wiki_workflow_test.go::TestWiki_NodeWorkflow/create node as bot | `space_id` in `--params`; `node_type`; `obj_type`; `title` in `--data` | |
-| ✓ | wiki nodes list | api | wiki/helpers_test.go::findWikiNodeByToken; wiki_workflow_test.go::TestWiki_NodeWorkflow/list nodes and find created node as bot; wiki_workflow_test.go::TestWiki_NodeWorkflow/list nodes and find copied node as bot | `space_id`; `page_size`; optional `page_token` | |
+| ✓ | wiki nodes list | api | wiki/helpers_test.go::findNodeByToken; wiki_workflow_test.go::TestWiki_NodeWorkflow/list nodes and find created node as bot; wiki_workflow_test.go::TestWiki_NodeWorkflow/list nodes and find copied node as bot | `space_id`; `page_size`; optional `page_token` | |
 | ✓ | wiki spaces get | api | wiki_workflow_test.go::TestWiki_NodeWorkflow/get space as bot | `space_id` in `--params` | |
 | ✓ | wiki spaces get_node | api | wiki_workflow_test.go::TestWiki_NodeWorkflow/get created node as bot | `token`; `obj_type` in `--params` | |
 | ✓ | wiki spaces list | api | wiki_workflow_test.go::TestWiki_NodeWorkflow/list spaces as bot | `page_size` in `--params` | |
